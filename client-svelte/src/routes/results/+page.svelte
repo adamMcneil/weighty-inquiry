@@ -72,6 +72,7 @@
                 updateScore(new Score(prop, data[prop]));
             }
         })
+        scores.sort(); // todo
     }
 
     let answers: Array<Answer> = [];

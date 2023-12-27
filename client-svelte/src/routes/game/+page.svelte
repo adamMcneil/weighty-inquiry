@@ -59,6 +59,7 @@
     let game: Game;
     let players: Array<Player> = [];
     let rounds: Array<Round> = [];
+    let players_who_did_not_answer: Set<string> = new Set();
     
     let current_question: string | undefined = "";
     let answer: string = "";
@@ -104,6 +105,12 @@
             players = game.players;
             rounds = game.rounds;
             has_everybody_answered = game.rounds[game.rounds.length - 1].answers.length == game.players.length;
+
+            players_who_did_not_answer = new Set<string>([...data.players]);
+            rounds[round_count].answers.forEach(answer => {
+                players_who_did_not_answer.delete(answer.player);
+            });
+
             round_count = (data.rounds.length - 1).toString();
             localStorage.setItem("round_count", round_count);
             if (has_everybody_answered) {
@@ -164,6 +171,7 @@
     <div>
         {current_question}
     </div>
+
     {#if has_answered != "true"}
         <div>
             <InputField bind:value="{answer}" text="enter your answer" />
@@ -175,8 +183,13 @@
 
     {#if has_answered == "true"}
         <div>
-            Wait for the other players.
+            Waiting for:
         </div>
+        {#each players_who_did_not_answer as player}
+            <div>
+                {player}
+            </div>
+        {/each}
     {/if}
 
     <div>
@@ -187,7 +200,7 @@
             {player}
         </div>
     {/each}
-
+        
     {#if has_answered != "true"}
         <div>
             <Button text="Leave" onClick={onLeaveClick} />
