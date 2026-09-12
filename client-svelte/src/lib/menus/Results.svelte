@@ -1,15 +1,11 @@
 <script lang="ts">
 	import Button from '$lib/Button.svelte';
 	import type { Answer } from '$lib/datatypes/answer';
-	import type { Picture } from '$lib/datatypes/picture';
 	import type { Guess } from '$lib/datatypes/guess';
-	import { Score } from '$lib/datatypes/score';
 	import { onMount } from 'svelte';
 	import { getGame, getScore } from '$lib/functions/requests';
 	import type { Game } from '$lib/datatypes/game';
 	import type { Round } from '$lib/datatypes/round';
-	import GuessWait from './GuessWait.svelte';
-	import Guess from './Guess.svelte';
 
 	export let setGameState: (new_state: string) => void;
 	export let name: string | null;
@@ -17,18 +13,32 @@
 
 	let question: string;
 	let answers: Array<Answer> = [];
-
-	let pictures: Array<Picture> = [];
 	let players: Array<string> = [];
 	let correct_answer_map: Map<string, string> = new Map();
 	let my_answer: string;
 	let my_guess: Array<Answer> = [];
-	let my_guess_map: Map<string, string> = new Map();
 	let score_map: Map<string, number> = new Map();
 	let knows_score_map: Map<string, number> = new Map();
 	let people_who_guessed_you_correct: Set<string> = new Set([]);
 	let round_count: number;
 	let game: Game;
+
+	// One row per answer that was not mine: who really gave it, and who I put on it.
+	$: my_rows = answers
+		.filter((answer) => answer.player != name)
+		.slice()
+		.sort((a, b) => a.player.localeCompare(b.player))
+		.map((answer) => {
+			const mine = my_guess.find((guess_answer) => guess_answer.answer == answer.answer);
+			return {
+				answer: answer.answer,
+				actual: answer.player,
+				guessed: mine ? mine.player : ''
+			};
+		});
+	$: my_correct = my_rows.filter((row) => row.guessed == row.actual).length;
+	$: other_players = players.filter((player) => player != name);
+	$: rounds_played = round_count > 1 ? round_count - 1 : 1;
 
 	function onNextRoundClick() {
 		setGameState('answer');
@@ -41,7 +51,9 @@
 				for (var prop in data) {
 					score_map.set(prop, data[prop]);
 				}
-				score_map = new Map([...score_map.entries()].sort((a, b) => b[1] - a[1]));
+				score_map = new Map(
+					[...score_map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+				);
 			});
 	}
 
@@ -54,11 +66,11 @@
 				players = data.players;
 				question = data.rounds[data.rounds.length - 2].question;
 				answers = data.rounds[data.rounds.length - 2].answers;
-				pictures = data.rounds[data.rounds.length - 2].pictures;
 
 				answers.forEach((answer: Answer) => {
 					correct_answer_map.set(answer.player, answer.answer);
 				});
+				correct_answer_map = correct_answer_map;
 				my_answer = correct_answer_map.get(name);
 
 				data.rounds[data.rounds.length - 2].guesses.forEach((guess: Guess) => {
@@ -74,86 +86,23 @@
 				});
 				people_who_guessed_you_correct = people_who_guessed_you_correct;
 
-				my_guess.forEach((answer: Answer) => {
-					my_guess_map.set(answer.player, answer.answer);
-				});
-
 				data.players.forEach((player: string) => {
 					if (player != name) {
-						console.log(player);
 						getKnowScore(player);
 					}
 				});
-				knows_score_map = new Map([...knows_score_map.entries()].sort((a, b) => b[1] - a[1]));
+				knows_score_map = new Map(
+					[...knows_score_map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+				);
 			});
 	}
-
-	async function handleOnMount() {}
 
 	onMount(() => {
 		readGame();
 		getScores();
 	});
 
-	function didYouGuessRight(player: string) {
-		return my_guess_map.get(player) == correct_answer_map.get(player);
-	}
-
-	function showCorrectAnswer(player: string) {
-		alert('For ' + player + ' you guessed: ' + my_guess_map.get(player));
-	}
-
-	function getLeaderBoardCssClass(player: string) {
-		if (player == name) {
-			return 'me';
-		} else if (didYouGuessRight(player)) {
-			return 'correct';
-		} else {
-			return 'incorrect';
-		}
-	}
-
-	function getTopClass(index: number) {
-		if (index == 0) {
-			return "top"
-		} else if (index == players.length -1) {
-			return "bottom"
-		} else {
-			return ""
-		}
-	}
-
-	function getTopClassOther(index: number) {
-		if (index == 0 && index == players.length -2) {
-		return "top bottom"
-	}
-		if (index == 0) {
-			return "top"
-		} else if (index == players.length -2) {
-			return "bottom"
-		} else {
-			return ""
-		}
-	}
-
-	function getTileClass(index: number) {
-		if (index == 0) {
-			return ""
-		}
-		return "tile"
-	}
-
-	function getWhoKnowsCssClass(player: string) {
-		if (people_who_guessed_you_correct.has(player)) {
-			return 'correct';
-		} else {
-			return 'incorrect';
-		}
-	}
-
 	function getKnowScore(player: string) {
-		console.log(player);
-		console.log(game);
 		let count: number = 0;
 		game?.rounds.forEach((round: Round) => {
 			let correct_answer = '';
@@ -173,7 +122,6 @@
 					});
 				}
 			});
-			console.log(round);
 		});
 		knows_score_map.set(player, count);
 	}
@@ -187,29 +135,61 @@
 		Round #{round_count}
 	</div>
 
-	<div>
+	<div class="question">
 		{question}
+	</div>
+	<div class="summary">
+		you got {my_correct} of {my_rows.length} · {people_who_guessed_you_correct.size} of {other_players.length}
+		got you
+	</div>
+
+	<h2>How You Did</h2>
+	<div class="stack">
+		{#each my_rows as row (row.answer)}
+			<div class="row {row.guessed == row.actual ? 'correct' : 'incorrect'}">
+				<div class="line answer">"{row.answer}"</div>
+				<div class="line who">
+					<span class="mark">{row.guessed == row.actual ? '✓' : '✗'}</span>
+					{row.actual} said it
+					{#if row.guessed != row.actual}
+						· you said {row.guessed == '' ? 'nobody' : row.guessed}
+					{/if}
+				</div>
+			</div>
+		{/each}
+	</div>
+
+	<h2>Who Knows You</h2>
+	<div class="stack">
+		{#if my_answer}
+			<div class="row me">
+				<div class="line who">you said</div>
+				<div class="line answer">"{my_answer}"</div>
+			</div>
+		{/if}
+		{#each knows_score_map as [player, score] (player)}
+			<div class="row {people_who_guessed_you_correct.has(player) ? 'correct' : 'incorrect'}">
+				<div class="line who">
+					<span class="mark">{people_who_guessed_you_correct.has(player) ? '✓' : '✗'}</span>
+					{player}
+				</div>
+				<div class="line note">
+					got you {score} of {rounds_played} {rounds_played == 1 ? 'round' : 'rounds'}
+				</div>
+			</div>
+		{/each}
 	</div>
 
 	<h2>Leader Board</h2>
-	{#each score_map as [player, score], index}
-		<div
-			class="{getTileClass(index)} {getLeaderBoardCssClass(player)} {getTopClass(index)}"
-			on:click={() => showCorrectAnswer(player)}
-		>
-			{player}: {score}
-			<div>
-				"{correct_answer_map.get(player)}"
+	<div class="stack">
+		{#each score_map as [player, score], index (player)}
+			<div class="row leader {player == name ? 'me' : 'neutral'}">
+				<span class="rank">{index + 1}</span>
+				<span class="who">{player}</span>
+				<span class="points">{score}</span>
 			</div>
-		</div>
-	{/each}
-
-	<h2>Who guessed you correct</h2>
-	{#each knows_score_map as [player, score], index}
-		<div class="{getTileClass(index)} {getWhoKnowsCssClass(player)} {getTopClassOther(index)}">
-			{player}: {score}
-		</div>
-	{/each}
+		{/each}
+	</div>
 
 	<div>
 		<Button text="Next Round" onClick={onNextRoundClick} />
@@ -218,6 +198,67 @@
 
 <style>
 	@import '../../app.css';
+
+	.question {
+		font-size: 18px;
+		padding: 0 10px;
+	}
+	.summary {
+		font-size: 14px;
+		opacity: 0.7;
+		padding: 0 10px 5px 10px;
+	}
+	.stack {
+		max-width: 460px;
+		margin-inline: auto;
+		padding: 0;
+	}
+	.row {
+		padding: 10px 14px;
+		overflow-wrap: anywhere;
+	}
+	.row:first-child {
+		border-top-right-radius: 50px;
+		border-top-left-radius: 50px;
+	}
+	.row:last-child {
+		border-bottom-right-radius: 50px;
+		border-bottom-left-radius: 50px;
+	}
+	.line {
+		padding: 0;
+	}
+	.answer {
+		font-size: 18px;
+	}
+	.who {
+		font-size: 16px;
+	}
+	.note {
+		font-size: 14px;
+		opacity: 0.8;
+	}
+	.mark {
+		font-size: 18px;
+		padding-right: 4px;
+	}
+	.leader {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+	.leader .rank {
+		opacity: 0.7;
+		min-width: 20px;
+		text-align: left;
+	}
+	.leader .who {
+		flex: 1;
+		text-align: left;
+	}
+	.leader .points {
+		font-size: 18px;
+	}
 	.correct {
 		background-color: rgba(116, 185, 95, 0.75);
 	}
@@ -228,21 +269,19 @@
 		background-color: rgba(28, 188, 252, 0.75);
 	}
 	@media (prefers-color-scheme: dark) {
-	.tile{
+		.neutral {
+			background-color: rgba(255, 255, 255, 0.1);
+		}
+		.row + .row {
 			border-top: 1px solid #111;
 		}
 	}
 	@media (prefers-color-scheme: light) {
-	.tile{
+		.neutral {
+			background-color: rgba(0, 0, 0, 0.15);
+		}
+		.row + .row {
 			border-top: 1px solid #fff;
-	}
-	}
-	.top {
-		border-top-right-radius: 50px;
-		border-top-left-radius: 50px;
-	}
-	.bottom {
-		border-bottom-right-radius: 50px;
-		border-bottom-left-radius: 50px;
+		}
 	}
 </style>
