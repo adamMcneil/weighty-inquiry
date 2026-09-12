@@ -1,185 +1,231 @@
-<script src="DragDropTouch.js" lang="ts">
-	import { flip } from 'svelte/animate';
-	import { Picture } from '$lib/datatypes/picture';
+<script lang="ts">
 	import { onMount } from 'svelte';
-	import { sleep } from './functions/helper';
-
+	import { slide } from 'svelte/transition';
+	import type { Picture } from '$lib/datatypes/picture';
 
 	export let baskets: Array<{ name: string; item: string }> = [];
 	export let players: Array<string> = [];
-	export let pictures: Array<Picture> = []
+	export let pictures: Array<Picture> = [];
 
-	let selected_name: string | null;
-	let selected_basket_id: number | null;
-
-	function geturl(prompt : string){
-		for (let i = 0; i < pictures.length; i++){
-			console.log(pictures[i].prompt + " " + prompt);
-			if (prompt == pictures[i].prompt){
-				return pictures[i].url;
-			}
-		} 
-	}
-
-	let get_game_interval_ms: number = 1000;
-	async function getGameLoop() {
-		console.log(selected_name);
-		console.log(selected_basket_id);
-		await sleep(get_game_interval_ms);
-		getGameLoop();
-	}
+	let open_basket_id: number | null = null;
+	let picture_mode: boolean = false;
+	let server_path: string = '';
 
 	onMount(() => {
-		// getGameLoop();
+		picture_mode = localStorage.getItem('game_mode') == 'picture';
+		server_path = localStorage.getItem('base_server_path')?.replace('api/v1/game/', '') ?? '';
 	});
 
-	function isSameBasket(basket_id: number) {
-		if (selected_name == null) {
-			return false;
-		} else if (basket_id == -1) {
-			return selected_name in players;
+	$: matched = baskets.filter((basket) => basket.item != '').length;
+	$: unplaced = players.filter((player) => !baskets.some((basket) => basket.item == player));
+
+	function getUrl(prompt: string) {
+		const picture = (pictures ?? []).find((picture) => picture.prompt == prompt);
+		return picture ? server_path + picture.url : '';
+	}
+
+	function togglePicker(basket_id: number) {
+		open_basket_id = open_basket_id == basket_id ? null : basket_id;
+	}
+
+	// Tapping the name already in the box takes it back out, tapping a name that
+	// is sitting in another box swaps the two, anything else just places it.
+	function pick(basket_id: number, player: string) {
+		const previous = baskets[basket_id].item;
+		if (previous == player) {
+			baskets[basket_id].item = '';
 		} else {
-			if (baskets[basket_id].item == selected_name) {
-				return true;
+			const held_by = baskets.findIndex((basket, i) => i != basket_id && basket.item == player);
+			if (held_by != -1) {
+				baskets[held_by].item = previous;
 			}
+			baskets[basket_id].item = player;
 		}
+		baskets = baskets;
+		open_basket_id = null;
 	}
 
-	function onClickBasket(event: any, basket_id: number) {
-		console.log("Basket")
-		if (selected_name == null) {
-			return;
-		} else if (isSameBasket(basket_id)) {
-			return;
-		} else if (basket_id == -1) {
-			baskets[selected_basket_id].item = "";
-			players.push(selected_name);
-			players = [...players];
-			selected_name = null
-			selected_basket_id = null
-		} else if (selected_basket_id == -1) {
-			if (baskets[basket_id].item != "") {
-				players.push(baskets[basket_id].item);
-			}
-			baskets[basket_id].item = selected_name;
-			players.splice(players.indexOf(selected_name), 1);
-			selected_name = null
-			selected_basket_id = null
-		} else {
-			let copy = selected_name;
-			baskets[selected_basket_id].item = baskets[basket_id].item; 
-			baskets[basket_id].item = copy; 
-			selected_name = null
-			selected_basket_id = null
-		}
-		if (selected_name == baskets[basket_id].item) {
-			return;
-		}
+	function clear(basket_id: number) {
+		baskets[basket_id].item = '';
+		baskets = baskets;
+		open_basket_id = null;
 	}
 
-	function onClickCard(event: any, name: string, basket_id: number) {
-		console.log("Card")
-		if (selected_name == null) {
-			selected_name = name;
-			selected_basket_id = basket_id;
-		} else if (basket_id == -1) {
-			// we cannot do this because we can tell when we click on a card from the basket function
-			// baskets[selected_basket_id].item = name;
-			// players.push(selected_name)
-			// players = [...players];
-			// selected_name = null
-			// selected_basket_id = null
+	function onKeydown(event: KeyboardEvent) {
+		if (event.key == 'Escape') {
+			open_basket_id = null;
 		}
 	}
-
-	function getCardClass(select_name, item) {
-		if (select_name == item) {
-			return "highlight"
-		} else {
-			return "non-highlight"
-		}
-	}
-
 </script>
 
-{#each baskets as basket, basketIndex (basket)}
-	<div>
-		{#if localStorage.getItem("game_mode") == "text"}
-		<b>{basket.name}</b>
-		{:else}
-		<img src="{localStorage.getItem("base_server_path")?.replace("api/v1/game/", "")}{geturl(basket.name)}" alt="Shut up"/>
-		{/if}
-		<ul class="shadow holder" on:click={(event) => onClickBasket(event, basketIndex)} >
-			{#if basket.item != ''}
-				<div>
-					<li class="shadow card {getCardClass(selected_name, basket.item)}" on:click={(event) => onClickCard(event, basket.item, basketIndex)}>
-						{basket.item}
-					</li>
+<svelte:window on:keydown={onKeydown} />
+
+<div class="matching">
+	<div class="tally">{matched} / {baskets.length} matched</div>
+	{#if matched == 0}
+		<div class="hint">tap a box, then tap a name</div>
+	{:else if unplaced.length > 0}
+		<div class="hint">left to place: {unplaced.join(' · ')}</div>
+	{:else}
+		<div class="hint ready">everyone placed</div>
+	{/if}
+
+	{#each baskets as basket, basket_id (basket)}
+		{@const url = picture_mode ? getUrl(basket.name) : ''}
+		<div class="row shadow">
+			<div class="prompt">
+				{#if url != ''}
+					<img class="prompt-picture" src={url} alt={basket.name} />
+				{:else}
+					{basket.name}
+				{/if}
+			</div>
+			<div class="slot-row">
+				<button
+					class="slot"
+					class:filled={basket.item != ''}
+					class:open={open_basket_id == basket_id}
+					on:click={() => togglePicker(basket_id)}
+				>
+					{basket.item != '' ? basket.item : 'who said this?'}
+				</button>
+				{#if basket.item != ''}
+					<button class="clear" title="take this name back" on:click={() => clear(basket_id)}>
+						✕
+					</button>
+				{/if}
+			</div>
+			{#if open_basket_id == basket_id}
+				<!-- reveals on open, but closes instantly so a fast tap can never land on a
+				     picker that is on its way out -->
+				<div class="picker" in:slide={{ duration: 120 }}>
+					{#each players as player (player)}
+						<button
+							class="name"
+							class:chosen={basket.item == player}
+							class:taken={basket.item != player && baskets.some((other) => other.item == player)}
+							on:click={() => pick(basket_id, player)}
+						>
+							{player}
+						</button>
+					{/each}
 				</div>
 			{/if}
-		</ul>
-	</div>
-{/each}
-<div>
-<b>{"Players"}</b>
-</div>
-<ul class="flex-container shadow bank" on:click={(event) => onClickBasket(event, -1)}>
-	{#each players as item, itemIndex (item)}
-		<div>
-			<li class="shadow card {getCardClass(selected_name, item)}" draggable={true} on:click={(event) => onClickCard(event, item, -1)}>
-				{item}
-			</li>
 		</div>
 	{/each}
-</ul>
+</div>
 
 <style>
 	@import '../app.css';
-	.holder {
-		display: table;
+
+	.matching {
+		max-width: 460px;
 		margin-inline: auto;
-		padding: 0.01px;
-		border-radius: 5px;
-		min-width: 80px;
-		min-height: 55px;
+		padding: 0;
 	}
-	.card {
-		font-size: 16px;
-		font-family: inherit;
-		text-align: center;
+	.tally {
+		font-size: 18px;
+		padding: 0;
+	}
+	.hint {
+		font-size: 14px;
+		opacity: 0.7;
+		padding: 0 0 12px 0;
+	}
+	.hint.ready {
+		opacity: 1;
+		color: #13ad75;
+	}
+	.row {
 		border-radius: 5px;
-		text-align: center;
-		font-family: inherit;
-		font-size: 16px;
 		padding: 10px;
+		margin-bottom: 12px;
 	}
-	.bank {
-		min-height: 55px;
+	.prompt {
+		font-size: 18px;
+		padding: 0 0 8px 0;
+		overflow-wrap: anywhere;
 	}
-  	.highlight {
+	.prompt-picture {
+		display: block;
+		max-width: 100%;
+		margin-inline: auto;
+		border-radius: 5px;
+	}
+	.slot-row {
+		display: flex;
+		gap: 6px;
+		padding: 0;
+	}
+	button {
+		font-family: inherit;
+		font-size: 16px;
+		color: inherit;
+		text-transform: uppercase;
+		border-radius: 5px;
+		cursor: pointer;
+		/* only the hover affordances ease, placing a name recolours instantly */
+		transition-property: border-color, filter;
+		transition-duration: 0.2s;
+	}
+	.slot {
+		flex: 1;
+		min-height: 48px;
+		padding: 12px 10px;
+		border: 2px dashed rgba(127, 127, 127, 0.7);
+		background-color: transparent;
+	}
+	.slot.filled {
+		border: 2px solid transparent;
 		background-color: #4fcafa;
 	}
-  	.non-highlight {
+	.slot.open {
+		border: 2px solid #13ad75;
+	}
+	.clear {
+		width: 48px;
+		border: 2px solid rgba(127, 127, 127, 0.7);
+		background-color: transparent;
+	}
+	.picker {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 8px;
+		padding: 10px 0 2px 0;
+	}
+	.name {
+		padding: 10px;
+		border: none;
+		background-color: #4fcafa;
+	}
+	.name.taken {
 		background-color: #387b96;
 	}
-	li:hover {
-		background-color: #4fcafa;
+	.name.taken::before {
+		content: '↔ ';
 	}
-	ul {
-		list-style-type: none;
+	.name.chosen {
+		background-color: #13ad75;
+	}
+	.name.chosen::before {
+		content: '✓ ';
+	}
+	button:hover {
+		filter: brightness(1.15);
+	}
+	.slot:hover,
+	.clear:hover {
+		border-color: #4fcafa;
 	}
 	@media (prefers-color-scheme: dark) {
-		ul {
-			background-color: rgba(255,255,255,0.1);
+		.row {
+			background-color: rgba(255, 255, 255, 0.1);
 		}
 	}
 	@media (prefers-color-scheme: light) {
-		ul {
-			background-color: rgba(0,0,0,0.15);
+		.row {
+			background-color: rgba(0, 0, 0, 0.15);
 		}
 	}
-	.empty {
-		height: 55px;
-	}
-
 </style>

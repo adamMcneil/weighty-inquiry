@@ -9,7 +9,6 @@
 
 	import { deleteGame, deletePlayerFromGame, getGame } from '$lib/functions/requests';
 	import Button from '$lib/Button.svelte';
-	import InputField from '$lib/InputField.svelte';
 
 	let game_state: string | null;
 
@@ -42,7 +41,24 @@
 		}
 	});
 
-	let player_to_kick: string;
+	let other_players: Array<string> = [];
+
+	$: if (game_state == 'answer') {
+		readOtherPlayers();
+	}
+
+	async function readOtherPlayers() {
+		getGame(localStorage.getItem('game_name'))
+			.then((response) => response.json())
+			.then((data) => {
+				other_players = data.players.filter(
+					(player: string) => player != localStorage.getItem('name')
+				);
+			})
+			.catch(() => {
+				other_players = [];
+			});
+	}
 
 	function onLeave() {
 		if (confirm('Do you really want to leave the game?') == true) {
@@ -59,15 +75,13 @@
 		}
 	}
 
-	function onKick() {
-		if (player_to_kick.length == 0) {
-			return;
-		}
+	function onKick(player_to_kick: string) {
 		if (confirm('Do you really what to kick ' + player_to_kick + '?') == true) {
 			const response: Promise<Response> = deletePlayerFromGame(
 				localStorage.getItem('game_name'),
 				player_to_kick
 			);
+			response.then(() => readOtherPlayers());
 		}
 	}
 
@@ -115,10 +129,16 @@
 		<div>
 			<Button text="Leave Game" onClick={onLeave} />
 		</div>
-		<div>
-			<InputField bind:value={player_to_kick} text="player to kick" />
-			<Button text="↩" onClick={onKick} />
-		</div>
+		{#if other_players.length > 0}
+			<div class="kick-label">tap a player to kick them</div>
+			<div class="kick-list">
+				{#each other_players as player (player)}
+					<button class="kick-name shadow" on:click={() => onKick(player)}>
+						{player}
+					</button>
+				{/each}
+			</div>
+		{/if}
 	{/if}
 	{#if game_state != 'join'}
 		<div>
@@ -129,5 +149,35 @@
 
 <style>
 	@import '../app.css';
-	
+
+	.kick-label {
+		font-size: 14px;
+		opacity: 0.7;
+		padding: 10px 0 0 0;
+	}
+	.kick-list {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 8px;
+		padding: 8px;
+	}
+	.kick-name {
+		font-family: inherit;
+		font-size: 16px;
+		color: inherit;
+		text-transform: uppercase;
+		padding: 10px;
+		border: none;
+		border-radius: 5px;
+		background-color: #387b96;
+		cursor: pointer;
+		transition-duration: 0.2s;
+	}
+	.kick-name::before {
+		content: '✕ ';
+	}
+	.kick-name:hover {
+		background-color: #e86a6a;
+	}
 </style>

@@ -26,6 +26,13 @@
 	let baskets: Array<{ name: string; item: string }> = [];
 	let waiting_for: Array<string> = [];
 	let round_count: number;
+	let submitting: boolean = false;
+	let submit_message: string = '';
+
+	$: ready = baskets.length > 0 && baskets.every((basket) => basket.item != '');
+	$: if (ready) {
+		submit_message = '';
+	}
 
 	async function readGame() {
 		getGame(game_name)
@@ -70,20 +77,30 @@
 	});
 
 	function onSubmit() {
-		for (let i = 0; i < baskets.length; i++) {
-			if (baskets[i].item == '') {
-				return;
-			}
+		if (submitting) {
+			return;
 		}
-		baskets.forEach((basket, i) => {
-			guess.answers.push(new Answer(basket.item, basket.name));
-		});
+		if (!ready) {
+			submit_message = 'place a name in every box first';
+			return;
+		}
+		submitting = true;
+		submit_message = '';
+		guess.answers = baskets.map((basket) => new Answer(basket.item, basket.name));
 		const response: Promise<Response> = postGuess(game_name, guess);
-		response.then((response) => {
-			if (response.ok) {
-				setGameState('guess_wait');
-			}
-		});
+		response
+			.then((response) => {
+				if (response.ok) {
+					setGameState('guess_wait');
+				} else {
+					submitting = false;
+					submit_message = 'could not send your guesses, try again';
+				}
+			})
+			.catch(() => {
+				submitting = false;
+				submit_message = 'could not send your guesses, try again';
+			});
 		localStorage.setItem("get_increment", "true");
 	}
 </script>
@@ -97,18 +114,23 @@
 	</div>
 	<PlayerList {players} {waiting_for}/>
 	<div>{question}</div>
-	<Matching {baskets} players={players.filter((e) => e !== name)} pictures={pictures} />
-	<div>
+	<Matching bind:baskets players={players.filter((e) => e !== name)} pictures={pictures} />
+	<div class="submit" class:not-ready={!ready}>
 		<Button text="Submit" onClick={onSubmit} />
 	</div>
-	<div>
-		<!-- {#each pictures as pic }
-			<div>{pic.player}</div>
-			<img src="http://127.0.0.1:8172/{pic.url}" alt="Shut up"/>
-		{/each} -->
-	</div>
+	<div class="submit-message">{submit_message}</div>
 </main>
 
 <style>
 	@import '../../app.css';
+
+	.submit.not-ready {
+		opacity: 0.55;
+	}
+	.submit-message {
+		font-size: 14px;
+		color: #e86a6a;
+		min-height: 20px;
+		padding: 0;
+	}
 </style>
